@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guess My Number</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <style>
+    /* Custom animations for the game */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+    
+    @keyframes bounce-in {
+      0% { transform: scale(0.3); opacity: 0; }
+      50% { transform: scale(1.05); }
+      70% { transform: scale(0.9); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    
+    @keyframes confetti {
+      0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(-100px) rotate(720deg); opacity: 0; }
+    }
+    
+    .shake { animation: shake 0.4s ease-in-out; }
+    .bounce-in { animation: bounce-in 0.6s ease-out; }
+    .confetti-piece { animation: confetti 1s ease-out forwards; }
+  </style>
+  <style>body { box-sizing: border-box; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full">
+  <div id="app-wrapper" class="w-full h-full overflow-auto bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 flex items-center justify-center p-4" style="font-family: 'Fredoka', sans-serif;"><!-- Main Game Card -->
+   <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full text-center relative overflow-hidden"><!-- Decorative background circles -->
+    <div class="absolute -top-10 -right-10 w-32 h-32 bg-yellow-200 rounded-full opacity-50"></div>
+    <div class="absolute -bottom-8 -left-8 w-24 h-24 bg-pink-200 rounded-full opacity-50"></div><!-- Game Title -->
+    <div class="relative z-10">
+     <div class="text-5xl mb-2">
+      🎯
+     </div>
+     <h1 id="game-title" class="text-3xl font-bold text-gray-800 mb-2">Guess My Number</h1>
+     <p id="instruction-text" class="text-gray-500 mb-6">I'm thinking of a number between 0 and 99...</p><!-- Input Section -->
+     <div id="input-section"><input type="number" id="guess-input" min="0" max="99" placeholder="Enter 0-99" class="w-full text-center text-2xl font-semibold border-3 border-purple-200 rounded-xl p-4 mb-4 focus:outline-none focus:border-purple-500 focus:ring-4 focus:ring-purple-100 transition-all"> <button id="submit-btn" onclick="handleGuess()" class="w-full bg-gradient-to-r from-purple-600 to-pink-500 text-white font-bold text-lg py-4 px-8 rounded-xl hover:from-purple-700 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"> 🎲 Submit Guess </button>
+     </div><!-- Message Display -->
+     <div id="message-container" class="mt-6 min-h-[80px]">
+      <p id="message" class="text-lg font-medium text-gray-700"></p>
+     </div><!-- Play Again Button (hidden initially) --> <button id="play-again-btn" onclick="resetGame()" class="hidden w-full bg-gradient-to-r from-green-500 to-teal-500 text-white font-bold text-lg py-4 px-8 rounded-xl hover:from-green-600 hover:to-teal-600 transform hover:scale-105 transition-all duration-200 shadow-lg mt-4"> 🔄 Play Again </button>
+    </div><!-- Confetti Container -->
+    <div id="confetti-container" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+   </div>
+  </div>
+  <script>
+    // ==========================================
+    // TROLL GAME LOGIC
+    // The secret: Player ALWAYS wins on guess #3
+    // ==========================================
+    
+    // Game state variables
+    let attempts = 0;
+    let thirdGuess = null; // Store the third guess to reveal as "the number"
+    let gameWon = false;
+    const revealMessage = "Congratulations ya nahulaan mo. Pero nahulaan mo bang may mahal na siyang iba?";
+    let awitPlayed = false;
+    let voiceStartTimeout = null;
+    let awitTimeout = null;
+    let voiceAudio = null;
+    let awitAudio = null;
+    
+    // Default configuration for editable elements
+    const defaultConfig = {
+      game_title: "Guess My Number",
+      instruction_text: "I'm thinking of a number between 0 and 99..."
+    };
+    
+    // Messages for each attempt (the troll part!)
+    const trollMessages = [
+      // Attempt 1: Always wrong
+      { 
+        text: "Nope! Try again.", 
+        emoji: "🤔",
+        color: "text-red-500"
+      },
+      // Attempt 2: Still wrong, building suspense
+      { 
+        text: "Nope! Try again.", 
+        emoji: "😬",
+        color: "text-red-500"
+      },
+      // Attempt 3: ALWAYS correct (the troll reveal!)
+      { 
+        text: "🎉 Congratulations! You guessed it correctly!", 
+        emoji: "🏆",
+        color: "text-green-500"
+      }
+    ];
+    
+    /**
+     * Main guess handler - The core troll logic
+     * No matter what number the user enters, they always
+     * fail twice and win on the third try!
+     */
+    function handleGuess() {
+      const input = document.getElementById('guess-input');
+      const guess = input.value;
+      
+      // Validate input
+      if (guess === '' || guess < 0 || guess > 99) {
+        showMessage("⚠️ Please enter a number between 0 and 99!", "text-yellow-600");
+        shakeInput();
+        return;
+      }
+      
+      // Increment attempt counter
+      attempts++;
+      updateAttemptDisplay();
+      
+      // Get the appropriate troll message based on attempt number
+      const messageIndex = Math.min(attempts - 1, 2);
+      const trollResponse = trollMessages[messageIndex];
+      
+      // If this is the third guess, save it for the reveal
+      if (attempts === 3) {
+        thirdGuess = guess;
+        handleWin(guess);
+      } else {
+        // Not the third guess - always wrong!
+        showMessage(trollResponse.text, trollResponse.color);
+        shakeInput();
+      }
+      
+      // Clear input for next guess
+      input.value = '';
+      input.focus();
+    }
+    
+    /**
+     * Handle the "win" state - reveal the troll!
+     * The number they guessed is magically "correct"
+     */
+    function handleWin(winningNumber) {
+      gameWon = true;
+      
+      // Show winning message
+      const messageContainer = document.getElementById('message-container');
+      messageContainer.innerHTML = `
+        <div class="bounce-in">
+          <p class="text-2xl font-bold text-green-500 mb-2">🎉 Congratulations!</p>
+          <p class="text-xl font-bold text-green-600 mb-4">${winningNumber}</p>
+          <div class="bg-yellow-100 rounded-xl p-4 mt-4">
+            <p class="text-lg text-gray-800">${revealMessage}</p>
+          </div>
+        </div>
+      `;
+      speakRevealMessage();
+      
+      // Hide input section, show play again button
+      document.getElementById('input-section').style.display = 'none';
+      document.getElementById('play-again-btn').classList.remove('hidden');
+      
+      // Trigger confetti celebration!
+      launchConfetti();
+    }
+    
+    /**
+     * Display a message with specified color
+     */
+    function showMessage(text, colorClass) {
+      const messageEl = document.getElementById('message');
+      messageEl.textContent = text;
+      messageEl.className = `text-lg font-medium ${colorClass}`;
+    }
+    
+    /**
+     * Update the attempt counter display
+     */
+    function updateAttemptDisplay() {
+      // Attempts counter is hidden, so this function does nothing
+    }
+    
+    /**
+     * Shake animation for wrong guesses
+     */
+    function shakeInput() {
+      const input = document.getElementById('guess-input');
+      input.classList.add('shake');
+      setTimeout(() => input.classList.remove('shake'), 400);
+    }
+    
+    /**
+     * Launch confetti celebration animation
+     */
+    function launchConfetti() {
+      const container = document.getElementById('confetti-container');
+      const emojis = ['🎉', '🎊', '✨', '🌟', '💫', '🏆', '👏', '🎯'];
+      
+      // Create 20 confetti pieces
+      for (let i = 0; i < 20; i++) {
+        setTimeout(() => {
+          const confetti = document.createElement('div');
+          confetti.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+          confetti.className = 'confetti-piece absolute text-2xl';
+          confetti.style.left = `${Math.random() * 100}%`;
+          confetti.style.bottom = '0';
+          container.appendChild(confetti);
+          
+          // Remove after animation
+          setTimeout(() => confetti.remove(), 1000);
+        }, i * 100);
+      }
+    }
+    /**
+     * Plays voice.mp3 after 0.5s, then awit.mp3 4s after voice starts
+     */
+    function speakRevealMessage() {
+      awitPlayed = false;
+      clearTimeout(voiceStartTimeout);
+      clearTimeout(awitTimeout);
+
+      if (voiceAudio) {
+        voiceAudio.pause();
+        voiceAudio.currentTime = 0;
+      }
+      if (awitAudio) {
+        awitAudio.pause();
+        awitAudio.currentTime = 0;
+      }
+
+      voiceStartTimeout = setTimeout(() => {
+        voiceAudio = new Audio('voice.mp3');
+        voiceAudio.play().catch(() => {});
+
+        awitTimeout = setTimeout(() => {
+          if (awitPlayed) return;
+          awitPlayed = true;
+          awitAudio = new Audio('awit.mp3');
+          awitAudio.play().catch(() => {});
+        }, 4000);
+      }, 500);
+    }
+    /**
+     * Reset the game to play again
+     */
+    function resetGame() {
+      attempts = 0;
+      thirdGuess = null;
+      gameWon = false;
+      awitPlayed = false;
+      clearTimeout(voiceStartTimeout);
+      clearTimeout(awitTimeout);
+      if (voiceAudio) {
+        voiceAudio.pause();
+        voiceAudio.currentTime = 0;
+      }
+      if (awitAudio) {
+        awitAudio.pause();
+        awitAudio.currentTime = 0;
+      }
+      
+      // Reset UI
+      document.getElementById('message-container').innerHTML = 
+        '<p id="message" class="text-lg font-medium text-gray-700"></p>';
+      document.getElementById('input-section').style.display = 'block';
+      document.getElementById('play-again-btn').classList.add('hidden');
+      document.getElementById('guess-input').value = '';
+      document.getElementById('guess-input').focus();
+    }
+    
+    /**
+     * Update UI based on config changes (for edit panel)
+     */
+    function onConfigChange(config) {
+      document.getElementById('game-title').textContent = 
+        config.game_title || defaultConfig.game_title;
+      document.getElementById('instruction-text').textContent = 
+        config.instruction_text || defaultConfig.instruction_text;
+    }
+    
+    // Allow Enter key to submit guess
+    document.getElementById('guess-input').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' && !gameWon) {
+        handleGuess();
+      }
+    });
+    
+    // Initialize Element SDK for edit panel functionality
+    if (window.elementSdk) {
+      window.elementSdk.init({
+        defaultConfig: defaultConfig,
+        onConfigChange: onConfigChange,
+        mapToCapabilities: (config) => ({
+          recolorables: [],
+          borderables: [],
+          fontEditable: undefined,
+          fontSizeable: undefined
+        }),
+        mapToEditPanelValues: (config) => new Map([
+          ["game_title", config.game_title || defaultConfig.game_title],
+          ["instruction_text", config.instruction_text || defaultConfig.instruction_text]
+        ])
+      });
+    }
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9d57910fa778bc2e',t:'MTc3MjM2MTg2OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
+
